@@ -1,0 +1,31 @@
+# STHIRA backend - pinned versions (checked to install on Python 3.10 and 3.12)
+
+# --- Web server ---
+fastapi==0.115.12            # the API framework
+uvicorn[standard]==0.34.2    # runs the server
+python-multipart==0.0.20     # needed for photo + audio file uploads
+pydantic==2.11.4             # data shapes (app/core/schemas.py)
+pydantic-settings==2.9.1     # reads the .env file
+
+# --- Database and login ---
+SQLAlchemy==2.0.40           # SQLite access
+PyJWT==2.10.1                # login tokens
+bcrypt==4.3.0                # password hashing
+
+# --- Config files ---
+PyYAML==6.0.2                # reads config/*.yaml
+
+# --- Image, audio and maths ---
+numpy==2.2.6
+scipy==1.15.3                # FFT, filters, distance transform, WAV reading
+scikit-image==0.25.2         # crack thinning (skeleton)
+opencv-python-headless==4.11.0.86   # ArUco marker, warp, shadow removal
+Pillow==11.2.1               # saving images
+matplotlib==3.10.3           # draws the audio spectrum picture
+
+# --- PDF report ---
+reportlab==4.4.0
+
+# --- Testing ---
+pytest==8.3.5
+httpx==0.28.1                # lets tests call the API

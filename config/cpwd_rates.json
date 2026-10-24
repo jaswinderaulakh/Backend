@@ -1,0 +1,32 @@
+{
+  "WARNING": "PLACEHOLDER VALUES ONLY. Every rate below is FAKE. Replace each rate_rs and dsr_item_no with the real CPWD DSR value before any report is trusted.",
+  "dsr_edition": "REPLACE_ME (e.g. the DSR year/edition you are using)",
+  "currency": "INR",
+  "is_placeholder": true,
+  "items": [
+    {
+      "id": "epoxy_injection_grouting",
+      "description": "Epoxy injection grouting of cracks",
+      "unit": "rmt",
+      "rate_rs": 1000.00,
+      "dsr_item_no": "REPLACE_ME",
+      "is_placeholder": true
+    },
+    {
+      "id": "polymer_mortar_plastering",
+      "description": "Polymer mortar plastering",
+      "unit": "sqm",
+      "rate_rs": 500.00,
+      "dsr_item_no": "REPLACE_ME",
+      "is_placeholder": true
+    },
+    {
+      "id": "crack_sealing",
+      "description": "Crack sealing with sealant",
+      "unit": "rmt",
+      "rate_rs": 200.00,
+      "dsr_item_no": "REPLACE_ME",
+      "is_placeholder": true
+    }
+  ]
+}

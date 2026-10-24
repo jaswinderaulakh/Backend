@@ -1,0 +1,47 @@
+# =====================================================================
+# STHIRA thresholds  (the ONLY place numbers like these may live)
+# ---------------------------------------------------------------------
+# IMPORTANT: every value here is a STARTING VALUE taken from the pitch
+# deck. They are meant to be TUNED later on real campus samples.
+# Change a number here and the whole backend follows. Never type these
+# numbers into Python code.
+# =====================================================================
+
+marker:
+  aruco_size_mm: 50          # printed ArUco sticker is 5 cm wide (deck slide 3)
+  id_card_width_mm: 85.6     # fallback reference: a standard college ID card (deck slide 2)
+
+audio:
+  expected_sample_rate_hz: 48000  # coin-tap WAV must be 48 kHz (deck slide 2)
+  expected_duration_s: 3          # the recording is about 3 seconds long
+  highpass_hz: 600                # filter out speech and rumble below this (deck slide 4)
+  window_ms: 50                   # look only at 50 ms around the loudest tap (deck slide 4)
+  void_below_hz: 900              # dominant frequency BELOW this = hollow / void (deck slide 3)
+  solid_above_hz: 1400            # dominant frequency ABOVE this = solid concrete (deck slide 3)
+  # Between 900 and 1400 Hz the result is "uncertain" (no deck rule covers it).
+
+crack:
+  shear_angle_min_deg: 30    # crack angle from 30 to 60 degrees counts as
+  shear_angle_max_deg: 60    # diagonal shear risk (deck slides 3 and 4)
+  hairline_below_mm: 0.1     # narrower than this = hairline shrinkage (deck slide 4 table)
+  significant_above_mm: 0.3  # wider than this = significant crack (deck slide 4 table)
+
+# IS 456:2000, Clause 35.3.2: the widest crack the code allows, by exposure class.
+is456_crack_limit_mm:
+  mild: 0.3
+  moderate: 0.2
+  severe: 0.1
+
+# ---------------------------------------------------------------------
+# PLACEHOLDER (not from the deck): how bad a verdict is -> health score.
+# Severity 1 = harmless, 5 = urgent. Score 100 = perfectly healthy.
+# The deck gives no formula for the Building Health Index. Confirm or
+# replace these before Stage 5/6.
+# ---------------------------------------------------------------------
+health_score:
+  severity_to_score:
+    1: 100
+    2: 80
+    3: 60
+    4: 40
+    5: 20
