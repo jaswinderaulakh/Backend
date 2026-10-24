@@ -90,9 +90,14 @@ def make_pdf(result: InspectionResult, out_path: str) -> str:
         c = result.crack
         story.append(Paragraph("Measured results", styles["Heading2"]))
         values = [["Widest crack", f"{c.max_width_mm:g} mm"], ["Average width", f"{c.mean_width_mm:g} mm"],
-                  ["Crack length", f"{c.length_mm:g} mm"], ["Angle", f"{c.angle_deg:g} degrees"]]
+                  ["Crack length", f"{c.length_mm:g} mm"], ["Angle", f"{c.angle_deg:g} degrees"],
+                  ["Crack depth", "Not measured; requires a validated depth sensor or NDT method"]]
         if result.scale and result.scale.mm_per_px is not None:
             values.append(["Scale", f"{result.scale.mm_per_px:g} mm/pixel"])
+            if result.scale.reference_type == "id_card":
+                values.append(["Scale reference", "6 x 9 cm ID card"])
+            elif result.scale.reference_type == "aruco":
+                values.append(["Scale reference", "STHIRA ArUco marker"])
         if result.audio:
             hz = "unavailable" if result.audio.dominant_hz is None else f"{result.audio.dominant_hz:g} Hz"
             values.append(["Tap sound", f"{hz} ({result.audio.classification})"])

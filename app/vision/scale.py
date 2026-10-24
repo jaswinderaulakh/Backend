@@ -50,6 +50,11 @@ PathLike = Union[str, Path]
 # make_marker.py uses the same two lines, so print and detection always agree.
 ARUCO_DICTIONARY_NAME = "DICT_4X4_50"
 ARUCO_MARKER_ID = 0
+ID_CARD_MIN_SIDE_PX = 80
+ID_CARD_MIN_AREA_FRACTION = 0.002
+ID_CARD_MAX_AREA_FRACTION = 0.40
+ID_CARD_ASPECT_MIN = 1.30
+ID_CARD_ASPECT_MAX = 1.70
 
 MAX_IMAGE_SIDE_PX = 4000        # bigger photos are shrunk to this (longest side)
 DETECT_MIN_PERIMETER_RATE = 0.01  # let the detector see small markers, so we can say "too small"
@@ -100,10 +105,11 @@ def _load_marker_config(path_str: str) -> dict:
         marker_mm = float(data["marker"]["aruco_size_mm"])
         if marker_mm <= 0:
             raise ValueError("marker size must be above zero")
-        # TODO(ID-card fallback): data["marker"]["id_card_width_mm"] (85.6 mm) is
-        # meant for a later version that can use a college ID card as the
-        # reference when no ArUco marker is available. Not built yet (ArUco only).
-        return {"marker_mm": marker_mm}
+        card_short_mm = float(data["marker"]["id_card_short_side_mm"])
+        card_long_mm = float(data["marker"]["id_card_long_side_mm"])
+        if card_short_mm <= 0 or card_long_mm <= card_short_mm:
+            raise ValueError("ID card dimensions must be positive and the long side must be longer")
+        return {"marker_mm": marker_mm, "card_short_mm": card_short_mm, "card_long_mm": card_long_mm}
     except (KeyError, TypeError, ValueError, yaml.YAMLError) as exc:
         raise ScaleError(f"The marker settings in {path.name} are missing or not valid ({exc}).") from exc
 
@@ -162,6 +168,49 @@ def _detect(gray: np.ndarray) -> Tuple[Optional[np.ndarray], bool]:
     return best, best is None
 
 
+def _order_card_quad(quad: np.ndarray) -> np.ndarray:
+    """Rotate contour-order card corners so the first edge is a short side."""
+    points = np.asarray(quad, dtype=np.float64).reshape(4, 2)
+    lengths = _side_lengths(points)
+    short_edge = int(np.argmin(lengths))
+    return np.roll(points, -short_edge, axis=0)
+
+
+def _detect_id_card(gray: np.ndarray) -> Optional[np.ndarray]:
+    """Find the largest sharp, convex quadrilateral with a 6:9-card aspect ratio.
+
+    The user must include the whole physical card with a visible outer edge. This
+    deliberately does not infer scale from text or card artwork.
+    """
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    edges = cv2.Canny(blurred, 45, 135)
+    edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8), iterations=1)
+    contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    image_area = float(gray.shape[0] * gray.shape[1])
+    candidates = []
+    for contour in contours:
+        area = abs(float(cv2.contourArea(contour)))
+        if area < image_area * ID_CARD_MIN_AREA_FRACTION or area > image_area * ID_CARD_MAX_AREA_FRACTION:
+            continue
+        perimeter = float(cv2.arcLength(contour, True))
+        if perimeter <= 0:
+            continue
+        approx = cv2.approxPolyDP(contour, 0.02 * perimeter, True)
+        if len(approx) != 4 or not cv2.isContourConvex(approx):
+            continue
+        ordered = _order_card_quad(approx.reshape(4, 2))
+        sides = _side_lengths(ordered)
+        short_px = float((sides[0] + sides[2]) / 2.0)
+        long_px = float((sides[1] + sides[3]) / 2.0)
+        aspect = long_px / max(short_px, 1e-6)
+        if short_px < ID_CARD_MIN_SIDE_PX or not ID_CARD_ASPECT_MIN <= aspect <= ID_CARD_ASPECT_MAX:
+            continue
+        candidates.append((area, ordered))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: item[0])[1]
+
+
 def _side_lengths(quad: np.ndarray) -> np.ndarray:
     return np.array([np.linalg.norm(quad[(k + 1) % 4] - quad[k]) for k in range(4)])
 
@@ -199,6 +248,35 @@ def _build_warp(quad: np.ndarray, image_shape: Tuple[int, int]) -> Tuple[np.ndar
     A = np.array([[f, 0, -lo_x * f], [0, f, -lo_y * f], [0, 0, 1]], dtype=np.float64)
     canvas = (max(2, int(math.ceil((hi_x - lo_x) * f))), max(2, int(math.ceil((hi_y - lo_y) * f))))
     return A @ H0, canvas
+
+
+def _build_id_card_warp(
+    quad: np.ndarray, image_shape: Tuple[int, int], aspect_ratio: float
+) -> Tuple[np.ndarray, Tuple[int, int], np.ndarray]:
+    """Straighten a 6x9 cm card to a portrait 2:3 rectangle and retain wall area."""
+    h, w = image_shape
+    ordered = _order_card_quad(quad)
+    sides = _side_lengths(ordered)
+    short_px = float((sides[0] + sides[2]) / 2.0)
+    target_h = short_px * aspect_ratio
+    dst = np.array([[0, 0], [short_px, 0], [short_px, target_h], [0, target_h]], dtype=np.float32)
+    H0 = cv2.getPerspectiveTransform(ordered.astype(np.float32), dst)
+
+    photo_corners = np.array([[0, 0, 1], [w, 0, 1], [w, h, 1], [0, h, 1]], dtype=np.float64).T
+    mapped = H0 @ photo_corners
+    window = WARP_WINDOW_MARKER_WIDTHS * target_h
+    lo_x, hi_x, lo_y, hi_y = -window, short_px + window, -window, target_h + window
+    if np.all(mapped[2] > 1e-9):
+        xs, ys = mapped[0] / mapped[2], mapped[1] / mapped[2]
+        lo_x, hi_x = max(lo_x, xs.min()), min(hi_x, xs.max())
+        lo_y, hi_y = max(lo_y, ys.min()), min(hi_y, ys.max())
+    lo_x, hi_x = min(lo_x, 0.0), max(hi_x, short_px)
+    lo_y, hi_y = min(lo_y, 0.0), max(hi_y, target_h)
+    span = max(hi_x - lo_x, hi_y - lo_y)
+    f = min(1.0, MAX_WARP_SIDE_PX / span)
+    A = np.array([[f, 0, -lo_x * f], [0, f, -lo_y * f], [0, 0, 1]], dtype=np.float64)
+    canvas = (max(2, int(math.ceil((hi_x - lo_x) * f))), max(2, int(math.ceil((hi_y - lo_y) * f))))
+    return A @ H0, canvas, ordered
 
 
 # ------------------------------------------------------------------ quality
@@ -290,7 +368,7 @@ def find_scale(
     thresholds_path: Optional[PathLike] = None,
 ) -> ScaleResult:
     """
-    Find the marker in a photo and work out the scale.
+    Find the STHIRA marker or 6x9 cm ID card in a photo and work out the scale.
 
     image_path      the photo
     warped_path     where to save the straightened photo (PNG). If left out it is
@@ -298,80 +376,105 @@ def find_scale(
     thresholds_path only for tests: use a different thresholds.yaml
 
     Raises ScaleError (plain-English .message) when the photo cannot be used,
-    and MarkerNotFoundError when there is no usable marker in it.
+    and MarkerNotFoundError when neither scale reference is visible.
     """
     image_path = Path(image_path)
     cfg = _load_marker_config(str(Path(thresholds_path) if thresholds_path else _default_thresholds_path()))
     marker_mm = cfg["marker_mm"]
+    card_short_mm = cfg["card_short_mm"]
+    card_long_mm = cfg["card_long_mm"]
+    card_aspect = card_long_mm / card_short_mm
 
     # 1. Load
     bgr = load_photo(image_path)
     gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
 
-    # 2. Find the marker
+    # 2. Prefer the coded marker, then try the configured 6x9 cm card.
     quad, only_other_markers = _detect(gray)
+    reference_type = "aruco"
     if quad is None:
-        # TODO(ID-card fallback): try to find a standard college ID card here
-        # (id_card_width_mm in thresholds.yaml). Not built yet: ArUco only.
-        if only_other_markers:
+        quad = _detect_id_card(gray)
+        if quad is None:
+            if only_other_markers:
+                raise MarkerNotFoundError(
+                    "A marker was found, but it is not the STHIRA marker; no full 6x9 cm card was detected either. "
+                    "Place the entire 6x9 cm card beside the crack or use the STHIRA marker."
+                )
             raise MarkerNotFoundError(
-                "A marker was found, but it is not the STHIRA marker. "
-                "Please stick the marker printed by the STHIRA tool next to the crack."
+                "Marker not visible and no scale reference found. Please retake the photo with the complete 6x9 cm ID card "
+                "beside the crack or use the STHIRA marker; keep its outline sharp and unobstructed."
             )
-        raise MarkerNotFoundError(
-            "Marker not visible, please retake the photo with the whole marker in view. "
-            "Keep the photo sharp and well lit, and make sure nothing covers the marker."
+        reference_type = "id_card"
+
+    if reference_type == "aruco":
+        sides = _side_lengths(quad)
+        side_px = float(sides.mean())
+        if side_px < MIN_MARKER_SIDE_PX:
+            raise ScaleError(
+                f"The marker is too small in the photo ({side_px:.0f} pixels wide, at least {MIN_MARKER_SIDE_PX} needed). "
+                "Please move closer so the marker fills more of the photo, then retake it."
+            )
+        ratio = float(sides.min() / sides.max())
+        H, canvas = _build_warp(quad, gray.shape)
+        warped = cv2.warpPerspective(
+            bgr, H, canvas, flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_CONSTANT,
+            borderValue=(WARP_FILL_GRAY, WARP_FILL_GRAY, WARP_FILL_GRAY),
         )
-
-    sides = _side_lengths(quad)
-    side_px = float(sides.mean())
-    if side_px < MIN_MARKER_SIDE_PX:
-        raise ScaleError(
-            f"The marker is too small in the photo ({side_px:.0f} pixels wide, at least {MIN_MARKER_SIDE_PX} needed). "
-            "Please move closer so the marker fills more of the photo, then retake it."
-        )
-    ratio = float(sides.min() / sides.max())
-
-    # 3. Straighten the photo
-    H, canvas = _build_warp(quad, gray.shape)
-    warped = cv2.warpPerspective(
-        bgr, H, canvas, flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_CONSTANT,
-        borderValue=(WARP_FILL_GRAY, WARP_FILL_GRAY, WARP_FILL_GRAY),
-    )
-    warped_gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
-
-    # expected marker position in the straightened photo (by construction)
-    expected = cv2.perspectiveTransform(quad.reshape(1, 4, 2).astype(np.float32), H.astype(np.float64)).reshape(4, 2)
-    expected_side = float(_side_lengths(expected).mean())
-
-    # 4. Measure the marker in the straightened photo
-    again, _ = _detect(warped_gray)
-    if again is not None:
-        measured = _side_lengths(again)
-        marker_px = float(measured.mean())
-        consistency_err = max(
-            float(np.abs(measured - marker_px).max() / marker_px),
-            abs(marker_px - expected_side) / expected_side,
-        )
-        marker_quad = again
+        warped_gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
+        expected = cv2.perspectiveTransform(quad.reshape(1, 4, 2).astype(np.float32), H.astype(np.float64)).reshape(4, 2)
+        expected_side = float(_side_lengths(expected).mean())
+        again, _ = _detect(warped_gray)
+        if again is not None:
+            measured = _side_lengths(again)
+            reference_px = float(measured.mean())
+            consistency_err = max(
+                float(np.abs(measured - reference_px).max() / reference_px),
+                abs(reference_px - expected_side) / expected_side,
+            )
+            reference_quad = again
+        else:
+            reference_px = expected_side
+            consistency_err = CONSISTENCY_BAD_ERROR / 2
+            reference_quad = expected
+        mm_per_px = marker_mm / reference_px
     else:
-        # could not re-find it: fall back to the straightening maths, and score "consistency" low
-        marker_px = expected_side
-        consistency_err = CONSISTENCY_BAD_ERROR / 2
-        marker_quad = expected
-    mm_per_px = marker_mm / marker_px
+        sides = _side_lengths(quad)
+        short_px = float((sides[0] + sides[2]) / 2.0)
+        long_px = float((sides[1] + sides[3]) / 2.0)
+        if short_px < ID_CARD_MIN_SIDE_PX:
+            raise ScaleError(
+                f"The 6x9 cm card is too small in the photo ({short_px:.0f} pixels across its short side; "
+                f"at least {ID_CARD_MIN_SIDE_PX} are needed). Move closer and retake the photo."
+            )
+        H, canvas, quad = _build_id_card_warp(quad, gray.shape, card_aspect)
+        warped = cv2.warpPerspective(
+            bgr, H, canvas, flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_CONSTANT,
+            borderValue=(WARP_FILL_GRAY, WARP_FILL_GRAY, WARP_FILL_GRAY),
+        )
+        warped_gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
+        reference_quad = cv2.perspectiveTransform(quad.reshape(1, 4, 2).astype(np.float32), H.astype(np.float64)).reshape(4, 2)
+        measured = _side_lengths(reference_quad)
+        reference_px = float((measured[0] + measured[2]) / 2.0)
+        long_measured_px = float((measured[1] + measured[3]) / 2.0)
+        consistency_err = max(
+            abs(measured[0] - measured[2]) / max(reference_px, 1e-6),
+            abs(measured[1] - measured[3]) / max(long_measured_px, 1e-6),
+            abs((long_measured_px / max(reference_px, 1e-6)) - card_aspect) / card_aspect,
+        )
+        side_px = reference_px
+        ratio = 1.0
+        mm_per_px = card_short_mm / reference_px
 
-    # 5. Is the marker sharp and contrasty enough to trust?
-    sharpness, contrast = _sharpness(warped_gray, marker_quad)
+    # 5. Check that the chosen scale reference is sharp and contrasty enough.
+    sharpness, contrast = _sharpness(warped_gray, reference_quad)
     if contrast < MIN_MARKER_CONTRAST:
         raise ScaleError(
-            "The marker is too dark or too washed out to measure. "
-            "Please retake the photo in even light, without glare or heavy shadow on the marker."
+            "The scale reference is too dark or washed out to measure. "
+            "Retake the photo in even light, without glare or heavy shadow over the marker/card."
         )
     if sharpness < BLUR_FAIL_SHARPNESS:
         raise ScaleError(
-            "The photo is blurry around the marker. "
-            "Please hold the phone steady, let it focus on the wall, and retake the photo."
+            "The photo is blurry around the scale reference. Hold the phone steady and retake it."
         )
     confidence = _confidence(side_px, sharpness, ratio, consistency_err)
 
@@ -381,7 +484,8 @@ def find_scale(
     _save_png(out, cleaned)
 
     return ScaleResult(
-        marker_found=True,
+        marker_found=(reference_type == "aruco"),
+        reference_type=reference_type,
         mm_per_px=mm_per_px,
         confidence=confidence,
         warped_image_path=str(out),

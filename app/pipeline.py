@@ -17,24 +17,33 @@ from app.costing.estimate import estimate_cost
 from app.costing.report import make_pdf
 from app.crack.measure import (IGNORE_MARGIN_PX, NoCrackFoundError, measure_crack)
 from app.rules.engine import decide_verdict
-from app.vision.scale import (MarkerNotFoundError, ScaleError, _detect, find_scale, load_photo)
+from app.vision.scale import (MarkerNotFoundError, ScaleError, _detect, _detect_id_card,
+                              find_scale, load_photo)
 
 PathLike = Union[str, Path]
 
 
-def _warped_marker_box(warped_path: Path) -> tuple[int, int, int, int]:
-    """Detect the marker in the warped image and return an expanded ignore box."""
+def _warped_reference_box(warped_path: Path, reference_type: str | None) -> tuple[int, int, int, int]:
+    """Detect the calibration reference in the warped image and return its ignore box."""
     bgr = load_photo(warped_path)
     gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
-    corners, _other_markers = _detect(gray)
+    if reference_type == "id_card":
+        corners = _detect_id_card(gray)
+    else:
+        corners, _other_markers = _detect(gray)
     if corners is None:
-        raise ScaleError("The marker area could not be isolated. Please retake the photo with the full marker visible.")
+        raise ScaleError("The scale reference area could not be isolated. Retake the photo with the full marker/card visible.")
     height, width = gray.shape[:2]
     x0 = max(0, int(corners[:, 0].min()) - IGNORE_MARGIN_PX)
     y0 = max(0, int(corners[:, 1].min()) - IGNORE_MARGIN_PX)
     x1 = min(width, int(corners[:, 0].max()) + IGNORE_MARGIN_PX + 1)
     y1 = min(height, int(corners[:, 1].max()) + IGNORE_MARGIN_PX + 1)
     return x0, y0, x1 - x0, y1 - y0
+
+
+def _warped_marker_box(warped_path: Path) -> tuple[int, int, int, int]:
+    """Backward-compatible marker-only wrapper used by the tuning scripts."""
+    return _warped_reference_box(warped_path, "aruco")
 
 
 def _failed(photo_path: Path, wav_path: Path | None, exposure_class: str, message: str) -> InspectionResult:
@@ -62,12 +71,12 @@ def run_pipeline(photo_path: PathLike, wav_path: PathLike | None,
         return _failed(photo_path, wav_path, exposure_class,
                        "Marker not visible, please retake the photo.")
 
-    if not scale.marker_found or scale.mm_per_px is None or not scale.warped_image_path:
+    if scale.mm_per_px is None or not scale.warped_image_path:
         return _failed(photo_path, wav_path, exposure_class,
-                       "The marker could not be used. Please retake the photo with the full marker visible.")
+                       "No usable scale reference was found. Include the full 6x9 cm card or STHIRA marker.")
 
     warped_path = Path(scale.warped_image_path)
-    marker_box = _warped_marker_box(warped_path)
+    marker_box = _warped_reference_box(warped_path, scale.reference_type)
     no_crack = False
     try:
         crack = measure_crack(
@@ -102,10 +111,13 @@ def run_pipeline(photo_path: PathLike, wav_path: PathLike | None,
     elif audio_problem:
         fallback = load_rules()["fallback"]
         verdict = Verdict(
-            label="Inconclusive, tap test needed",
+            label="Photo-only screening complete",
             severity=fallback["severity"],
-            reason=(f"Photo analysis completed, but the tap result is unavailable: {audio_problem} "
-                    "The crack was assessed without a sound check; please repeat the tap test."),
+            reason=(f"The photo-only screening completed; the optional tap result was not used: {audio_problem} "
+                    f"The image-derived maximum width is {crack.max_width_mm:g} mm and "
+                    f"{'exceeds' if crack.max_width_mm > limit else 'does not exceed'} the configured "
+                    f"{exposure_class} exposure comparison of {limit:g} mm. Subsurface condition and crack "
+                    "depth were not measured. This screening is not a structural diagnosis."),
         )
     else:
         verdict = decide_verdict(crack, audio, exposure_class)

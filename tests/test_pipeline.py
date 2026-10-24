@@ -45,10 +45,11 @@ def test_no_crack_is_completed_with_no_repair(storage_env):
     assert result.crack.max_width_mm == 0 and result.cost.total_rs == 0
 
 
-def test_missing_audio_completes_photo_work_with_inconclusive_verdict(storage_env):
+def test_missing_audio_creates_complete_photo_only_report(storage_env):
     photo, wav = _write_scene(storage_env, with_audio=False)
     result = run_pipeline(photo, wav, "moderate")
     assert result.status == "completed"
     assert result.audio.classification == "uncertain" and result.audio.dominant_hz is None
-    assert result.verdict.label == "Inconclusive, tap test needed"
+    assert result.verdict.label == "Photo-only screening complete"
     assert result.verdict.severity == get_rule("inconclusive")["severity"]
+    assert result.cost.pdf_path and (storage_root() / result.cost.pdf_path).is_file()

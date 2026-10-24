@@ -94,7 +94,9 @@ def test_missing_audio_still_completes_photo_analysis(client, auth_headers, buil
     result = _wait_for_final(client, auth_headers, response.json()["inspection_id"])
     assert result["status"] == "completed"
     assert result["audio"]["classification"] == "uncertain"
-    assert result["verdict"]["label"] == "Inconclusive, tap test needed"
+    assert result["verdict"]["label"] == "Photo-only screening complete"
+    report = client.get(f"/inspections/{result['inspection_id']}/report.pdf", headers=auth_headers)
+    assert report.status_code == 200 and report.content.startswith(b"%PDF")
 
 
 def test_silent_audio_still_completes_photo_analysis(client, auth_headers, building):
@@ -104,7 +106,7 @@ def test_silent_audio_still_completes_photo_analysis(client, auth_headers, build
     assert result["status"] == "completed"
     assert result["audio"]["classification"] == "uncertain"
     assert result["audio"]["dominant_hz"] is None
-    assert result["verdict"]["label"] == "Inconclusive, tap test needed"
+    assert result["verdict"]["label"] == "Photo-only screening complete"
 
 
 def test_unexpected_error_is_generic_to_user_and_detailed_in_logs(client, auth_headers, building, monkeypatch):

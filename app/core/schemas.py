@@ -17,10 +17,11 @@ from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------- Vision
 class ScaleResult(BaseModel):
-    """Output of the marker + scale step (app/vision)."""
+    """Output of the visual scale-reference step (app/vision)."""
 
     marker_found: bool                     # True if the 5 cm ArUco marker was detected
-    mm_per_px: Optional[float] = None      # real-world millimetres covered by one pixel (None if no marker)
+    reference_type: Optional[Literal["aruco", "id_card"]] = None  # detected calibration reference
+    mm_per_px: Optional[float] = None      # real-world millimetres covered by one pixel (None if no reference)
     confidence: float = Field(0.0, ge=0, le=1)  # how much to trust the scale: 0 = not at all, 1 = fully
     warped_image_path: Optional[str] = None     # the tilt-corrected photo (None if no marker)
 

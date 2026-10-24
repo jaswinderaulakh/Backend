@@ -72,6 +72,19 @@ def make_scene(marker_px=MARKER_PX, marker_id=ARUCO_MARKER_ID, with_marker=True,
     return img
 
 
+def make_id_card_scene(short_side_px=300):
+    """Flat wall with a high-contrast portrait 6x9 cm card and printed detail."""
+    img = np.full((H, W, 3), WALL_BGR, dtype=np.uint8)
+    x, y = 220, 300
+    long_side_px = round(short_side_px * 1.5)
+    cv2.rectangle(img, (x, y), (x + short_side_px - 1, y + long_side_px - 1), (248, 248, 248), -1)
+    cv2.rectangle(img, (x, y), (x + short_side_px - 1, y + long_side_px - 1), (20, 20, 20), 5)
+    cv2.rectangle(img, (x + 24, y + 30), (x + 104, y + 120), (90, 130, 170), -1)
+    cv2.line(img, (x + 135, y + 55), (x + short_side_px - 20, y + 55), (35, 35, 35), 4)
+    cv2.line(img, (x + 135, y + 78), (x + short_side_px - 30, y + 78), (80, 80, 80), 3)
+    return img
+
+
 def warp(img, matrix, size=None):
     h, w = img.shape[:2]
     size = size or (w, h)
@@ -159,6 +172,16 @@ def run_case(tmp_path, name, img, limit_percent):
 
 
 # ------------------------------------------------------------ accuracy cases
+def test_6x9_cm_id_card_calibrates_scale(tmp_path):
+    card_short_px = 300
+    photo = save_photo(tmp_path / "id_card.png", make_id_card_scene(card_short_px))
+    result = find_scale(photo, warped_path=tmp_path / "id_card_warped.png")
+    assert result.reference_type == "id_card"
+    assert result.marker_found is False
+    assert result.mm_per_px is not None
+    assert abs(result.mm_per_px - 60.0 / card_short_px) / (60.0 / card_short_px) < 0.03
+
+
 def test_flat_photo_scale_is_accurate(tmp_path):
     result = run_case(tmp_path, "flat", make_scene(), 1.0)
     # the flat picture's true scale is known exactly

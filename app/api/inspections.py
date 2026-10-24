@@ -12,7 +12,7 @@ router = APIRouter(prefix="/inspections", tags=["Inspections"])
 
 @router.post("", response_model=InspectionResult, status_code=202)
 def create_inspection(
-    photo: Annotated[UploadFile, File(description="Crack photo (JPEG or PNG) with the 5 cm marker in view")],
+    photo: Annotated[UploadFile, File(description="Crack photo (JPEG or PNG) with the STHIRA marker or full 6x9 cm card in view")],
     building_id: Annotated[int, Form()],
     floor: Annotated[str, Form(min_length=1, max_length=20)],
     location: Annotated[str, Form(min_length=1, max_length=200)],

@@ -9,7 +9,8 @@
 
 marker:
   aruco_size_mm: 50          # printed ArUco sticker is 5 cm wide (deck slide 3)
-  id_card_width_mm: 85.6     # fallback reference: a standard college ID card (deck slide 2)
+  id_card_short_side_mm: 60  # user-requested 6 x 9 cm rectangular scale reference
+  id_card_long_side_mm: 90
 
 audio:
   expected_sample_rate_hz: 48000  # coin-tap WAV must be 48 kHz (deck slide 2)

@@ -77,7 +77,11 @@ BLACKHAT_MIN = 12              # ... and the black-hat response must be at least
 EDGE_DEPTH_FRACTION = 0.5      # crack edge = where the dark dip is half as deep as its deepest part
 EDGE_WINDOW_PX = 15            # size of the window used to find the deepest part nearby
 CLOSE_KERNEL_PX = 3            # closes 1-pixel gaps in the crack
-GROUP_DILATE_PX = 7            # pieces closer than this are treated as one crack
+GROUP_DILATE_PX = 7          # pieces closer than this are treated as one crack
+HIGH_CONTRAST_CLOSE_PX = 11  # bridge tiny breaks at the junctions of a dark crack
+HIGH_CONTRAST_DOMINANCE_RATIO = 3.0  # require one network to be much longer than the runner-up
+HIGH_CONTRAST_MIN_AREA_FRACTION = 0.0002
+HIGH_CONTRAST_MAX_MEAN_WIDTH_PX = 24.0
 
 # --- Choosing the crack among the blobs -----------------------------
 MIN_COMPONENT_AREA_PX = 30     # smaller blobs are noise
@@ -228,7 +232,16 @@ def measure_crack_detailed(
     # --- 3. Find the crack -------------------------------------------
     raw = _segment(gray_filled, scale)
     raw &= safe_zone
-    crack_mask, regions_found = _select_crack(raw, scale, int(safe_zone.sum()))
+    try:
+        crack_mask, regions_found = _select_crack(raw, scale, int(safe_zone.sum()))
+    except (NoCrackFoundError, AmbiguousImageError) as original_error:
+        try:
+            crack_mask, regions_found = _select_high_contrast_network(
+                gray_filled, scale, safe_zone, int(safe_zone.sum())
+            )
+            logger.info("Used the high-contrast branched-crack fallback after classical region selection failed.")
+        except (NoCrackFoundError, AmbiguousImageError):
+            raise original_error
     crack_mask = _fill_small_holes(crack_mask)
 
     # --- 4. Measure ---------------------------------------------------
@@ -524,6 +537,71 @@ def _segment_classical(gray_filled: np.ndarray, mm_per_px: float) -> np.ndarray:
         candidate.astype(np.uint8), cv2.MORPH_CLOSE, _ellipse(CLOSE_KERNEL_PX)
     )
     return closed.astype(bool)
+
+
+def _select_high_contrast_network(
+    gray: np.ndarray, mm_per_px: float, safe_zone: np.ndarray, usable_pixels: int
+) -> Tuple[np.ndarray, int]:
+    """Select a single dominant dark crack network when the classical mask is ambiguous.
+
+    This fallback is intentionally conservative: it uses a photo-relative dark
+    threshold, bridges only small branch gaps, and refuses to choose between
+    multiple similarly long networks. It is not a trained crack classifier.
+    """
+    values = gray[safe_zone]
+    if values.size < 100:
+        raise NoCrackFoundError("Too little valid wall is available for a crack assessment.")
+    dark_percentile, median = np.percentile(values, [1.0, 50.0])
+    contrast = float(median - dark_percentile)
+    otsu, _ = cv2.threshold(
+        values.astype(np.uint8).reshape(-1, 1), 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
+    )
+    if contrast >= 40:
+        cutoff = int(min(120.0, dark_percentile + max(4.0, contrast * 0.05)))
+    elif median - float(otsu) >= 25:
+        cutoff = int(min(120.0, float(otsu)))
+    else:
+        raise NoCrackFoundError("No sufficiently dark crack network was found.")
+    candidate = ((gray <= cutoff) & safe_zone).astype(np.uint8)
+    kernel = _ellipse(HIGH_CONTRAST_CLOSE_PX)
+    closed = cv2.morphologyEx(candidate, cv2.MORPH_CLOSE, kernel).astype(bool)
+    closed &= safe_zone
+    if not closed.any():
+        raise NoCrackFoundError("No sufficiently dark crack network was found.")
+
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(closed.astype(np.uint8), connectivity=8)
+    min_area = max(MIN_COMPONENT_AREA_PX * 10, int(usable_pixels * HIGH_CONTRAST_MIN_AREA_FRACTION))
+    min_length_px = max(MIN_CRACK_LENGTH_FLOOR_PX, MIN_CRACK_LENGTH_MM / mm_per_px)
+    candidates = []  # (skeleton length, mask crop, x, y)
+    for index in range(1, count):
+        x, y, w, h, area = stats[index]
+        if area < min_area:
+            continue
+        crop = labels[y:y + h, x:x + w] == index
+        skeleton = skeletonize(crop)
+        length_px = _skeleton_length_px(skeleton)
+        mean_width_px = float(area) / max(length_px, 1.0)
+        if length_px < min_length_px or mean_width_px > HIGH_CONTRAST_MAX_MEAN_WIDTH_PX:
+            continue
+        candidates.append((length_px, crop, x, y))
+
+    if not candidates:
+        raise NoCrackFoundError("No crack detected in this photo.")
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    if len(candidates) > 1 and candidates[0][0] < HIGH_CONTRAST_DOMINANCE_RATIO * candidates[1][0]:
+        raise AmbiguousImageError(
+            "Several similarly strong dark crack-like networks remain after filtering. "
+            "Please frame one crack more closely and retake the photo."
+        )
+
+    length_px, crop, x, y = candidates[0]
+    mask = np.zeros(gray.shape, dtype=bool)
+    mask[y:y + crop.shape[0], x:x + crop.shape[1]] = crop
+    if usable_pixels > 0 and mask.sum() / usable_pixels > MAX_MASK_FRACTION:
+        raise AmbiguousImageError(
+            "A large part of the usable wall is dark; the image cannot be separated safely into crack and background."
+        )
+    return mask, 1
 
 
 def _select_crack(raw: np.ndarray, mm_per_px: float, usable_pixels: int):

@@ -18,3 +18,5 @@ services:
         value: ./storage
       - key: DEBUG
         value: "false"
+      - key: STHIRA_SEED_DEMO
+        value: "true"

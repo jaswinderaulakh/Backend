@@ -14,7 +14,8 @@ def load_yaml(name):
 def test_thresholds_match_the_deck():
     t = load_yaml("thresholds.yaml")
     assert t["marker"]["aruco_size_mm"] == 50
-    assert t["marker"]["id_card_width_mm"] == 85.6
+    assert t["marker"]["id_card_short_side_mm"] == 60
+    assert t["marker"]["id_card_long_side_mm"] == 90
     assert t["audio"]["highpass_hz"] == 600
     assert t["audio"]["window_ms"] == 50
     assert t["audio"]["void_below_hz"] == 900
