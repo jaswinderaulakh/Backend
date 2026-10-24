@@ -1,0 +1,67 @@
+# =====================================================================
+# STHIRA verdict rules  (deck slide 4, "How the rule engine labels a crack")
+# ---------------------------------------------------------------------
+# HOW IT WORKS
+#  * Rules are checked TOP TO BOTTOM. The FIRST rule that matches wins,
+#    and all lower rules are ignored.
+#  * Each condition names a threshold from config/thresholds.yaml
+#    instead of repeating the number, so numbers live in one place only.
+#    The current value is shown in brackets for your convenience.
+#  * Crack width used = the MAXIMUM width along the crack.
+#  * "between" includes both ends.
+#  * Severity numbers (1 = harmless ... 5 = urgent) are STARTING VALUES
+#    chosen by the developer (not in the deck). Confirm or change them.
+# =====================================================================
+
+rule_order_note: "first match wins, top to bottom"
+
+rules:
+  # 1. Angle check comes first, so a diagonal crack is flagged whatever the sound says.
+  #    This also makes the "plaster spalling" rule below apply only to cracks
+  #    OUTSIDE the 30-60 degree range, as the deck's hard-case note requires.
+  - id: shear_risk
+    label: "Shear risk: inspect first"
+    severity: 5
+    when:
+      - {field: angle_deg, op: between, low: crack.shear_angle_min_deg, high: crack.shear_angle_max_deg}   # [30 to 60]
+      # tap sound: any
+
+  # 2. Wide crack + hollow sound
+  - id: void_risk
+    label: "Void risk: inspect"
+    severity: 4
+    when:
+      - {field: max_width_mm, op: gt, value: crack.significant_above_mm}   # [> 0.3 mm]
+      - {field: dominant_hz,  op: lt, value: audio.void_below_hz}          # [< 900 Hz]
+
+  # 3. Wide crack + solid sound
+  - id: plaster_spalling
+    label: "Plaster spalling: cosmetic"
+    severity: 2
+    when:
+      - {field: max_width_mm, op: gt, value: crack.significant_above_mm}   # [> 0.3 mm]
+      - {field: dominant_hz,  op: gt, value: audio.solid_above_hz}         # [> 1400 Hz]
+
+  # 4. Medium crack + solid sound
+  - id: minor
+    label: "Minor: seal and monitor"
+    severity: 3
+    when:
+      - {field: max_width_mm, op: between, low: crack.hairline_below_mm, high: crack.significant_above_mm}   # [0.1 to 0.3 mm]
+      - {field: dominant_hz,  op: gt, value: audio.solid_above_hz}                                           # [> 1400 Hz]
+
+  # 5. Thin crack + solid sound
+  - id: hairline
+    label: "Hairline shrinkage: no action"
+    severity: 1
+    when:
+      - {field: max_width_mm, op: lt, value: crack.hairline_below_mm}      # [< 0.1 mm]
+      - {field: dominant_hz,  op: gt, value: audio.solid_above_hz}         # [> 1400 Hz]
+
+# Used when NONE of the five rules match (for example the tap sound is between
+# 900 and 1400 Hz). NOT in the deck: added by the developer so the system never
+# returns "no answer". Confirm or change.
+fallback:
+  id: inconclusive
+  label: "Inconclusive: re-test or inspect manually"
+  severity: 3

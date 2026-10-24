@@ -1,0 +1,33 @@
+# STHIRA backend - pinned versions
+# Updated at Stage 1 for Python 3.14 (Windows). Checked: every package below
+# has Python 3.14 wheels and installs together.
+
+# --- Web server ---
+fastapi==0.162.0             # the API framework
+uvicorn[standard]==0.54.0    # runs the server
+python-multipart==0.0.32     # needed for photo + audio file uploads and login form
+pydantic==2.14.1             # data shapes (app/core/schemas.py)
+pydantic-settings==2.16.1    # reads the .env file
+
+# --- Database and login ---
+SQLAlchemy==2.1.6            # SQLite access
+PyJWT==2.15.1                # login tokens
+bcrypt==5.0.0                # password hashing
+
+# --- Config files ---
+PyYAML==6.0.3                # reads config/*.yaml
+
+# --- Image, audio and maths ---
+numpy==2.5.4
+scipy==1.18.1                # FFT, filters, distance transform, WAV reading
+scikit-image==0.26.0         # crack thinning (skeleton)
+opencv-python-headless==5.0.0.93   # ArUco marker, warp, shadow removal
+Pillow==13.0.0               # saving images
+matplotlib==3.11.2           # draws the audio spectrum picture
+
+# --- PDF report ---
+reportlab==5.1.0
+
+# --- Testing ---
+pytest==9.1.1
+httpx==0.28.1                # lets tests call the API

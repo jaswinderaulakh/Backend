@@ -1,0 +1,15 @@
+# STHIRA campus-health starting values. Tune with the project owner as data grows.
+health_index:
+  starting_score: 100
+  minimum_score: 0
+  severity_penalties:
+    1: 0
+    2: 3
+    3: 8
+    4: 15
+    5: 25
+
+colour_bands:
+  green_minimum: 80
+  yellow_minimum: 50
+  # Anything below yellow_minimum is red.
