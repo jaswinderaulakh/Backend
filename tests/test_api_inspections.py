@@ -6,7 +6,7 @@ from app.core.schemas import InspectionResult
 
 def test_create_inspection_returns_a_full_valid_result(client, building, upload):
     resp = upload(building["id"])
-    assert resp.status_code == 201
+    assert resp.status_code == 202
     result = InspectionResult.model_validate(resp.json())  # exactly the shape in schemas.py
     assert result.status == "completed" and result.error_message is None
     assert result.inspection_id >= 1
@@ -86,13 +86,12 @@ def test_bad_exposure_class_is_422(building, upload):
 def test_all_three_exposure_classes_work(building, upload):
     for exposure in ("mild", "moderate", "severe"):
         resp = upload(building["id"], exposure_class=exposure)
-        assert resp.status_code == 201 and resp.json()["exposure_class"] == exposure
+        assert resp.status_code == 202 and resp.json()["exposure_class"] == exposure
 
 
-def test_missing_files_or_fields_is_422(client, auth_headers, building, photo_bytes):
+def test_missing_photo_or_required_fields_is_422(client, auth_headers, building):
     resp = client.post("/inspections", data={"building_id": building["id"], "floor": "1", "location": "x",
-                                             "exposure_class": "mild"},
-                       files={"photo": ("a.jpg", photo_bytes, "image/jpeg")}, headers=auth_headers)
+                                             "exposure_class": "mild"}, headers=auth_headers)
     assert resp.status_code == 422
     resp = client.post("/inspections", data={"building_id": building["id"]}, headers=auth_headers)
     assert resp.status_code == 422
@@ -105,7 +104,7 @@ def test_photo_must_be_a_jpeg_or_png(building, upload):
 
 def test_recording_must_be_a_wav(building, upload):
     resp = upload(building["id"], wav=b"this is not a wav file")
-    assert resp.status_code == 400 and ".wav" in resp.json()["detail"]
+    assert resp.status_code == 400 and "WAV" in resp.json()["detail"]
 
 
 def test_empty_files_are_refused(building, upload):
@@ -114,13 +113,12 @@ def test_empty_files_are_refused(building, upload):
 
 
 def test_too_big_upload_is_refused(building, upload, monkeypatch, photo_bytes):
-    monkeypatch.setenv("MAX_UPLOAD_MB", "0")
-    from app.core.settings import get_settings
-    get_settings.cache_clear()
+    import app.core.inspection_service as service
+    monkeypatch.setattr(service, "load_upload_limits", lambda: {"photo_max_mb": 0, "wav_max_mb": 0})
     assert upload(building["id"]).status_code == 413
 
 
-def test_same_files_always_give_the_same_fake_verdict(building, upload):
+def test_same_image_and_audio_give_the_same_real_verdict(building, upload):
     a = upload(building["id"]).json()
     b = upload(building["id"]).json()
     assert a["verdict"]["label"] == b["verdict"]["label"]
@@ -133,8 +131,9 @@ def test_failed_analysis_is_saved_as_failed(client, auth_headers, building, uplo
         raise RuntimeError("test failure")
     monkeypatch.setattr(service, "run_pipeline", boom)
     resp = upload(building["id"])
-    assert resp.status_code == 201
+    assert resp.status_code == 202
     body = resp.json()
-    assert body["status"] == "failed" and "test failure" in body["error_message"]
+    assert body["status"] == "failed" and "couldn't finish" in body["error_message"]
+    assert "test failure" not in body["error_message"]
     assert body["verdict"] is None and body["cost"] is None
     assert client.get(f"/inspections/{body['inspection_id']}", headers=auth_headers).json()["status"] == "failed"

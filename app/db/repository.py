@@ -8,8 +8,8 @@ from app.db.models import Building, Inspection, User
 
 
 # ---- users
-def create_user(db: Session, username: str, password_hash: str) -> User:
-    user = User(username=username, password_hash=password_hash)
+def create_user(db: Session, username: str, password_hash: str, role: str = "inspector") -> User:
+    user = User(username=username, password_hash=password_hash, role=role)
     db.add(user)
     db.commit()
     return user
@@ -24,7 +24,7 @@ def get_user(db: Session, user_id: int) -> Optional[User]:
 
 
 # ---- buildings
-def create_building(db: Session, name: str, latitude: float, longitude: float) -> Building:
+def create_building(db: Session, name: str, latitude: Optional[float], longitude: Optional[float]) -> Building:
     building = Building(name=name, latitude=latitude, longitude=longitude)
     db.add(building)
     db.commit()

@@ -289,6 +289,15 @@ def test_plain_wall_gives_no_crack(tmp_path):
     assert "No crack detected" in info.value.message
 
 
+def test_single_pixel_warp_fill_border_is_not_reported_as_a_crack(tmp_path):
+    img, rng, noise = make_wall(seed=5)
+    gray = finish(img, rng, noise)
+    gray[-1, :] = 128  # the exact grey used by the perspective-warp border
+    photo = save(tmp_path, gray, "one_pixel_warp_fill.png")
+    with pytest.raises(NoCrackFoundError):
+        measure_crack(photo, MM_PER_PX)
+
+
 def test_too_dark_photo(tmp_path):
     img, rng, noise = make_wall()
     line(img, (60, 200), (640, 200), 4)

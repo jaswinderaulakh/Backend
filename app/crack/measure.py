@@ -37,6 +37,7 @@ from matplotlib.figure import Figure
 from scipy import ndimage as ndi
 from skimage.morphology import skeletonize
 
+from app.core.config import load_image_processing_config
 from app.core.schemas import CrackResult
 
 logger = logging.getLogger(__name__)
@@ -379,10 +380,21 @@ def _find_fill_region(bgr: np.ndarray) -> np.ndarray:
     Only big grey patches that touch the photo edge count, so ordinary wall
     pixels that happen to be exactly 128 are not thrown away.
     """
-    is_grey = np.all(bgr == WARP_FILL_GRAY, axis=2).astype(np.uint8)
+    fill_cfg = load_image_processing_config()
+    expected = int(fill_cfg["warp_fill_gray"])
+    tolerance = int(fill_cfg["warp_fill_tolerance"])
+    difference = np.abs(bgr.astype(np.int16) - expected)
+    is_grey = (difference.max(axis=2) <= tolerance).astype(np.uint8)
     count, labels, stats, _ = cv2.connectedComponentsWithStats(is_grey, connectivity=4)
     height, width = is_grey.shape
     fill = np.zeros(is_grey.shape, dtype=bool)
+    # Perspective warping can leave a one-pixel grey strip at an edge. It is
+    # too small for the component-area rule below, but its long straight edge
+    # looks exactly like a crack to the classical segmenter.
+    fill[0, :] |= is_grey[0, :].astype(bool)
+    fill[-1, :] |= is_grey[-1, :].astype(bool)
+    fill[:, 0] |= is_grey[:, 0].astype(bool)
+    fill[:, -1] |= is_grey[:, -1].astype(bool)
     for index in range(1, count):
         x, y, w, h, area = stats[index]
         touches_edge = x == 0 or y == 0 or x + w == width or y + h == height

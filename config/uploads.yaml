@@ -1,0 +1,3 @@
+# Maximum accepted upload sizes; these are read by the upload service.
+photo_max_mb: 15
+wav_max_mb: 10

@@ -1,0 +1,4 @@
+# Stage 3 CLAHE can shift the neutral grey used outside a perspective-warped photo.
+# Stage 4 uses this range to recognize that border without mistaking it for a crack.
+warp_fill_gray: 128
+warp_fill_tolerance: 8

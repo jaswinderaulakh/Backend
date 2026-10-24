@@ -11,6 +11,11 @@ venv/
 # Local data
 sthira.db
 storage/
+demo_output/
+logs/
+tools/output/
+tests/real_data/*
+!tests/real_data/truth.csv
 
 # OS / editor
 .DS_Store

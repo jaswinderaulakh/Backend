@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: sthira-backend
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: DATABASE_URL
+        value: sqlite:///./sthira.db
+      - key: STORAGE_DIR
+        value: ./storage
+      - key: DEBUG
+        value: "false"

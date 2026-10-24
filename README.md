@@ -1,55 +1,52 @@
 # STHIRA Backend
 
-The server behind the STHIRA mobile app. It checks wall cracks from a photo and a coin-tap sound.
+FastAPI and SQLite backend for the STHIRA campus structural-health monitoring app. It processes a marked wall photo and an optional coin-tap recording, then saves an inspection result and PDF report.
 
-**Status: Stage 1.** Every endpoint works, but the analysis results are FAKE until later stages replace them.
+## Run on Windows
 
-## 1. Install the Python libraries (Windows)
+Open PowerShell in the top-level `Backend` project folder. If you have not created a local settings file yet, copy the safe template:
 
-Open a terminal (PowerShell or Command Prompt) in this folder, then:
-
-```
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-copy .env.example .env
+```powershell
+Copy-Item .env.example .env
 ```
 
-The first line makes a private box for the libraries. The second turns it on (you will see `(.venv)` at the start of the line). The third installs everything. The last one makes your settings file `.env` (never share it).
+Then start the server:
 
-Mac or Linux: use `python3 -m venv .venv`, `source .venv/bin/activate` and `cp .env.example .env` instead.
-
-## 2. Start the server
-
-Every time you come back, open a terminal in this folder and run:
-
-```
-.venv\Scripts\activate
-uvicorn app.main:app --reload
+```powershell
+py -3.14 -m uvicorn app.main:app --reload
 ```
 
-The first start creates the database file (`sthira.db`) and the `storage` folder by itself. Stop the server with Ctrl+C.
+Open `http://127.0.0.1:8000/docs` in a browser. Stop the server with **Ctrl+C**. The app creates its SQLite database, `storage/`, and `logs/` automatically. Keep `.env` private; it is ignored by Git.
 
-## 3. Open the test page
+Run the complete tests from the project folder:
 
-With the server running, open this in your web browser:
-
-http://127.0.0.1:8000/docs
-
-It lists every endpoint and lets you try each one with a button. No coding needed.
-
-## 4. Try an upload on the test page
-
-1. Open `POST /auth/register`, click **Try it out**, type a username and a password (6+ characters), click **Execute**.
-2. Click the green **Authorize** button (top right). Type the same username and password, click **Authorize**, then **Close**. Leave the other boxes empty.
-3. Open `POST /buildings`, click **Try it out**, give it a name, latitude and longitude, click **Execute**. Note the `id` in the answer (the first one is 1).
-4. Open `POST /inspections`, click **Try it out**. Fill in `building_id`, `floor`, `location`, pick an `exposure_class`.
-5. For `photo` click **Choose File** and pick `tests\fixtures\sample_crack.jpg`. For `wav` pick `tests\fixtures\sample_tap.wav`. Click **Execute**.
-6. The (fake) result appears below. To get the PDF: open `GET /inspections/{inspection_id}/report.pdf`, enter the inspection id, click **Execute**, then **Download file**.
-7. Try `GET /campus/map` to see the building as GeoJSON with its health index.
-
-## Run the tests
-
+```powershell
+py -3.14 -m pytest -q
 ```
-python -m pytest
+
+The automated suite in this work was run with Python 3.12.3, which is also the Docker/Render version. Python 3.14 was not available in the build environment, so run the command above on your laptop to confirm your specific Python 3.14 package installation.
+
+## Local admin account
+
+Public registration creates an inspector account only. To create an admin in the local SQLite database, stop the server and run:
+
+```powershell
+py -3.14 -m app.core.create_admin
 ```
+
+This command changes only the database selected by your local `.env`. It does not create an admin account on a separately deployed Render service.
+
+## Run one photo directly
+
+```powershell
+py -3.14 -m app.run_one photo.jpg tap.wav --exposure moderate
+```
+
+Replace the file names with your own marked JPEG/PNG and optional WAV, and select `mild`, `moderate`, or `severe`. The command prints measurements, verdict, estimate, and PDF location.
+
+## Stage 9 files
+
+- [Render deployment guide](deploy.md) — setup steps, environment values, health check, logs, and free-tier limitations.
+- [Mobile API guide](api-for-the-app-developer.md) — authentication, upload, polling, and PDF download.
+- [Security checklist](security-checklist.md) — items to check before sharing a link.
+- [Plain-English accuracy note](tools/WHAT_THE_NUMBERS_MEAN.md) — what synthetic tests do and do not establish.

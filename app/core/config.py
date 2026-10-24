@@ -16,6 +16,26 @@ def load_thresholds() -> dict:
 
 
 @lru_cache
+def load_campus_config() -> dict:
+    return yaml.safe_load((CONFIG_DIR / "campus.yaml").read_text(encoding="utf-8"))
+
+
+@lru_cache
+def load_security_config() -> dict:
+    return yaml.safe_load((CONFIG_DIR / "security.yaml").read_text(encoding="utf-8"))
+
+
+@lru_cache
+def load_upload_limits() -> dict:
+    return yaml.safe_load((CONFIG_DIR / "uploads.yaml").read_text(encoding="utf-8"))
+
+
+@lru_cache
+def load_image_processing_config() -> dict:
+    return yaml.safe_load((CONFIG_DIR / "image_processing.yaml").read_text(encoding="utf-8"))
+
+
+@lru_cache
 def load_rules() -> dict:
     return yaml.safe_load((CONFIG_DIR / "rules.yaml").read_text(encoding="utf-8"))
 

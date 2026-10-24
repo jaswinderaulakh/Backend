@@ -1,48 +1,34 @@
 # STHIRA Backend: Progress
 
-- [x] Stage 0: Planning and shared files (spec, folders, schemas, config, requirements)
-- [x] Stage 1: API skeleton with fake data
-- [x] Stage 2: Audio module
-- [x] Stage 3: Marker + scale
-- [ ] Stage 4: Crack measurement
-- [ ] Stage 5: Rules + cost + PDF
-- [ ] Stage 6: Campus map + login
-- [ ] Stage 7: Connect everything
-- [ ] Stage 8: Real-data check
-- [ ] Stage 9: Deployment
+- [x] Stage 0: Planning and shared files
+- [x] Stage 1: API skeleton
+- [x] Stage 2: Audio analysis
+- [x] Stage 3: ArUco marker and scale
+- [x] Stage 4: Crack measurement
+- [x] Stage 5: Rules, repair costing, and PDF report
+- [x] Stage 6: Campus map, health index, login roles
+- [x] Stage 7: Real pipeline and asynchronous uploads
+- [x] Stage 8: Real-data check and tuning tools
+- [x] Stage 9: Deployment preparation (not deployed)
 
-## Next step
+## Stage 7 notes
 
-Stage 4: build crack measurement in `app/crack/`: a function that takes the straightened photo (`ScaleResult.warped_image_path`) and `mm_per_px` and returns a `CrackResult` (max width, mean width, length, angle in mm / degrees, plus the mask and heatmap pictures). Start with a classical (non-AI) crack mask: grey-scale, black-hat or ridge filter, threshold, clean-up, then thin to a skeleton (scikit-image) and use the distance transform (SciPy) for width. Ignore the marker area and the grey fill outside the photo (colour 128, `WARP_FILL_GRAY` in `app/vision/scale.py`). Use `crack.*` numbers from `config/thresholds.yaml`. Write tests with generated crack images of known width. Do not touch `app/pipeline.py` until Stage 7, unless you ask for it.
+`POST /inspections` validates file contents and configured size limits, saves uploads under safe generated names, and returns HTTP 202 with status `processing`. Analysis runs in a FastAPI background task; poll `GET /inspections/{id}` until status changes. The protected response schema uses `completed` to mean finished successfully (rather than the word `done`). The real pipeline runs scale detection, ignores the marker region, measures the crack, analyses audio, decides a verdict, estimates cost, and creates a PDF. Missing/silent audio yields an uncertain tap result; missing markers and unexpected errors are saved with user-friendly messages.
 
-Still to do for audio and scale (small, needs your OK because it touches `app/pipeline.py`): replace the fake audio and scale blocks in `app/pipeline.py` with `analyze_tap(...)` and `find_scale(...)`, passing output paths inside `STORAGE_DIR`, and turn `AudioAnalysisError` / `ScaleError` into an inspection with status `failed` and the error's `message`. Planned for Stage 7.
+A generated end-to-end test exposed that CLAHE slightly changes the perspective-warp border colour, causing Stage 4 to label the border as a long crack. Stage 4's fill detection was narrowly corrected using a tolerance in new `config/image_processing.yaml`; a regression test proves the issue and fix. Upload limits are in new `config/uploads.yaml` (15 MB photo, 10 MB WAV). The protected `app/core/schemas.py` and pre-existing files in `config/` were not changed.
 
-## Notes
+## Stage 8 notes
 
-- Replace the placeholder rates in `config/cpwd_rates.json` with real CPWD DSR values (project owner).
-- Confirm the severity numbers in `config/rules.yaml` and the severity-to-score table in `config/thresholds.yaml`.
-- Open question: exact formula for the Building Health Index (the deck does not give one). Stage 1 uses the average of a building's inspection scores.
-- The deck's rule table has gaps (for example a tap sound between 900 and 1400 Hz); a fallback verdict "Inconclusive" exists in `config/rules.yaml` but is not used by the fake pipeline yet.
-- Stage 1 decisions: login is a standard username + password form (so the Authorize button on the test page works); register takes JSON. Building and login shapes live in `app/core/api_schemas.py` because `schemas.py` is shared and was not changed.
-- `app/pipeline.py` returns placeholder identity fields (inspection id 0, empty building name); `app/core/inspection_service.py` fills them in. `SPEC.md` does not mention `app/pipeline.py` yet; add it if you want the spec to match (shared file, not changed).
-- All results and the sample PDF are FAKE. Only the PDF file is really created; the picture paths in the result (warped, heatmap, mask, spectrum) point to files that do not exist yet.
-- Uploads must be JPEG/PNG photos and real WAV files, 15 MB each at most (`MAX_UPLOAD_MB` in `.env`).
-- `.env` has a development-only secret key by default. Set a real one before Stage 9.
-- Requirements pinned for Python 3.14. A harmless warning about `httpx` may appear when running tests.
-- Tests: `python -m pytest` (59 tests: schemas, config files, helpers, pipeline, every endpoint).
-- Stage 2 (audio): `analyze_tap(wav_path, spectrum_path=None, thresholds_path=None)` in `app/audio/analyze.py`. If `spectrum_path` is left out, the picture is saved next to the WAV as `<name>_spectrum.png`. `thresholds_path` is only for tests. Try it: `python -m app.audio.demo path\to\file.wav`.
-- Audio errors: bad recordings raise `AudioAnalysisError` (has a plain-English `.message`) for: missing file, unreadable file, empty, silent, clipped, shorter than the 50 ms window, and no clear tap. Stage 7 should catch it and save the inspection as `failed`.
-- Audio quality settings that are NOT in `config/thresholds.yaml` (it is a shared file, so I did not change it) sit as named constants at the top of `app/audio/analyze.py`: `SILENCE_LEVEL`, `CLIP_LEVEL`, `CLIP_MIN_RUN`, `PEAK_TO_TYPICAL_MIN`, `FILTER_ORDER`, `EDGE_GUARD_MS`, `FFT_ZERO_PAD_FACTOR`, `SPECTRUM_PLOT_MAX_HZ`. Suggestion: move them into `config/thresholds.yaml` (needs the project owner's OK) so all tuning lives in one place.
-- Audio detail: the first and last 20 ms of a recording are ignored when looking for the tap (the filter makes a fake blip there). A tap in the first/last 20 ms will not be found.
-- A dominant frequency between 900 and 1400 Hz gives `uncertain` (as in the thresholds file); the rules still need to handle it (`Inconclusive`).
-- Audio tests: 22 tests in `tests/test_audio.py`, all sounds generated by code. They passed in my build environment using a small stand-in for pytest (PyPI was blocked there), so please run `python -m pytest` on your PC to confirm. Expected total: 81 tests (59 + 22).
-- Stage 3 (scale): `find_scale(image_path, warped_path=None, thresholds_path=None)` in `app/vision/scale.py`. If `warped_path` is left out, the straightened photo is saved next to the photo as `<name>_warped.png` (PNG, so no JPEG damage to thin cracks). Try it: `python -m app.vision.demo path\to\photo.jpg`. Make the marker: `python -m app.vision.make_marker`.
-- Scale errors: `find_scale` raises `ScaleError` (plain-English `.message`) because `ScaleResult` has no field for a reason. `MarkerNotFoundError` (a kind of `ScaleError`) means no usable marker. Other cases: missing file, unreadable image, marker too small, blurry photo, marker too dark / washed out. Stage 7 should catch them and save the inspection as `failed`.
-- The straightened photo is turned so the MARKER is upright. People must stick the marker on the wall right way up, or crack angles are measured against a sideways marker. The marker maker prints this reminder.
-- Marker settings that are NOT in `config/thresholds.yaml` (shared file, not changed) are named constants at the top of `app/vision/scale.py`: `ARUCO_DICTIONARY_NAME` (DICT_4X4_50), `ARUCO_MARKER_ID` (0), `MIN_MARKER_SIDE_PX`, `GOOD_MARKER_SIDE_PX`, blur limits, tilt limits, CLAHE settings, confidence weights and more. Suggestion: move them into the config (needs the project owner's OK).
-- Print size: 5 cm at 300 dpi is 590.55 pixels, not a whole number. The marker PNG uses 591 pixels and its print size is set to exactly 50 mm (about 300.2 dpi). After printing, check the black square with a ruler.
-- CLAHE only softens big shadows (a dark shadow went from 0.64 to 0.70 of the lit wall's brightness in the test). It does not remove them. Stage 4 should not rely on even lighting; a stronger fix (divide by a blurred copy of the picture) can be added later behind the same function.
-- ID-card marker: NOT built. Marked with `TODO(ID-card fallback)` in `app/vision/scale.py`.
-- Areas outside the original photo are filled with grey (128) in the straightened picture. Crack code must ignore them.
-- Scale tests: 27 tests in `tests/test_vision.py`, all pictures generated by code. Three red discs act as an independent ruler. Worst distance errors measured in my build environment: flat 0.04%, tilt (two strengths) 0.75% and 0.37%, rotated 30/90/180 degrees 0.08% / 0.04% / 0.04%, tilt + rotation 0.52%, shadow across the marker 0.04%, mild blur (sigma 2) 0.25%. Run `python -m pytest -s tests\test_vision.py` to see them. Expected total: 108 tests (59 + 22 + 27).
-- Tests were run with a small stand-in for pytest because PyPI was blocked in my build environment, so please run `python -m pytest` on your PC to confirm.
+`tools/batch_check.py`, `tools/tune_audio.py`, and `tools/tune_width.py` read only rows provided in `tests/real_data/truth.csv`. `tools/WHAT_THE_NUMBERS_MEAN.md` explains the limits of synthetic testing and the evidence still needed. The supplied truth CSV is only a header template; no campus data or real accuracy results were invented. Generated results are excluded from GitHub.
+
+## Stage 9 notes
+
+Added a Python 3.12 slim Docker setup, Render Blueprint, production environment checks, exact-origin CORS, storage/log directory creation, beginner deployment steps, mobile API guide, and security checklist. No deployment was performed. The dependency set resolved on Python 3.12.3 with `pip check` reporting no broken requirements. No dependency versions failed, so `requirements.txt` was not changed. The sandbox has no Docker or Podman executable, so an actual image build could not be run here.
+
+`QUESTIONS.md` records the unresolved safe way to create the first admin on a remote Render database. Running the existing setup command on a laptop changes only its local SQLite database; Render Free has no shell and its local files are temporary. The included free Render Blueprint is therefore for a disposable demo, not real campus data.
+
+Stage 7 full-suite verification: **164 passed**. Stage 8 full-suite verification: **167 passed**. Stage 9 full-suite verification: **171 passed**.
+
+## Project notes
+
+CPWD repair rates remain placeholders and should be replaced with verified project rates before using estimates for budgeting. No real campus photos or tap recordings have been supplied, so quality claims are limited to generated test images and sounds. Keep `.env` private; only `.env.example` belongs in GitHub.

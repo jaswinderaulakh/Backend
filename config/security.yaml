@@ -1,0 +1,5 @@
+# Failed sign-in attempts within the rolling time window are temporarily blocked.
+login_rate_limit:
+  attempts: 5
+  window_seconds: 60
+  lockout_seconds: 60

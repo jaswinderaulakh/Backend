@@ -27,6 +27,7 @@ class RegisterRequest(BaseModel):
 class UserOut(BaseModel):
     id: int                                # user number
     username: str                          # login name
+    role: str = "inspector"                # inspector or admin
     created_at: datetime                   # when the account was made (UTC)
 
 
@@ -37,15 +38,15 @@ class TokenResponse(BaseModel):
 
 class BuildingCreate(BaseModel):
     name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]  # building name
-    latitude: float = Field(ge=-90, le=90)      # map position, north-south
-    longitude: float = Field(ge=-180, le=180)   # map position, east-west
+    latitude: Optional[float] = Field(None, ge=-90, le=90)      # map position, north-south
+    longitude: Optional[float] = Field(None, ge=-180, le=180)  # map position, east-west
 
 
 class BuildingOut(BaseModel):
     id: int                                # building number
     name: str                              # building name
-    latitude: float                        # map position, north-south
-    longitude: float                       # map position, east-west
+    latitude: Optional[float]              # map position, north-south (may be unknown)
+    longitude: Optional[float]             # map position, east-west (may be unknown)
     created_at: datetime                   # when it was added (UTC)
 
 

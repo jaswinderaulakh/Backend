@@ -6,6 +6,7 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
 from app.core import accounts
+from app.core.errors import ForbiddenError
 from app.db.models import User
 from app.db.session import get_db
 
@@ -19,3 +20,12 @@ def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], db: DbSessio
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+def get_current_admin(user: CurrentUser) -> User:
+    if user.role != "admin":
+        raise ForbiddenError("Administrator access is required for this action.")
+    return user
+
+
+CurrentAdmin = Annotated[User, Depends(get_current_admin)]
